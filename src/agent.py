@@ -4,9 +4,8 @@ from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
-
-import httpx  # for calling external APIs
-import asyncio
+import dateparser  
+import httpx
 
 load_dotenv(".env.local")
 
@@ -51,6 +50,17 @@ async def book_appointment(ctx: agents.RunContext, patient_name: str, issue: str
     #     result = resp.json()
     return {"confirmation": "Appointment booked successfully for " + preferred_time}
 
+@agents.function_tool
+async def parse_datetime(ctx: agents.RunContext, text: str) -> dict:
+    """
+    Converts natural language datetime into an ISO8601 timestamp.
+    Example: "tomorrow 3pm" -> {"datetime": "2025-10-23T15:00:00-07:00"}
+    """
+    parsed = dateparser.parse(text)
+    if not parsed:
+        return {"error": "Could not parse date/time."}
+    return {"datetime": parsed.isoformat()}
+
 # --- Define main Assistant agent --- #
 class MainAssistant(Agent):
     def __init__(self) -> None:
@@ -61,9 +71,23 @@ class MainAssistant(Agent):
                 "then call a diagnosis tool (symptom_check_api) to get a probable issue. "
                 "Then you will inform the user of the result and remind them to see a doctor in-person. "
                 "If needed you can offer to book an in-person appointment by calling book_appointment. "
-                "You can also hand over to a nurse agent if the urgency is high."
+                "If they don't provide a full date and time, ask for missing parts"
+                "call the `parse_datetime` tool to convert it into an absolute timestamp e.g. October 23, 2025 at 3 PM"
+                "Confirm this time in the result format with the user before booking. "
+                "After confirmation, call `book_appointment` with the confirmed datetime value in ISO format."
+                
+                "Example:"
+                "Assistant: Do you want me to help you book an appointment?"
+                "User: 'Yes, book me tomorrow'"
+                "Assistant: 'Sure — what time would you like the appointment?'"
+                "User: 'around 4:30 PM'"
+                "Assistant: (combine 'tomorrow' + '4:30PM') → call `parse_datetime` to convert the final interpreted expression into an ISO datetime string"
+                "Then confirm the parsed datetime with the user in natural language:"
+                "Assistant: 'Okay so your appointment gonna be on November 5th at 4:30 PM, right?'"
+                "User: 'Yes'"
+                "Assistant: (then call `book_appointment` with the ISO datetime string)."
             ),
-            tools=[symptom_check_api, book_appointment]
+            tools=[symptom_check_api, book_appointment, parse_datetime]
         )
 
     async def handle_input(self, user_input: str) -> None:

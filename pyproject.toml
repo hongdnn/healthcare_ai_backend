@@ -3,6 +3,7 @@ name = "healthcare_ai_backend"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "dateparser>=1.2.2",
     "livekit-agents[silero,turn-detector]~=1.2",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv>=1.1.1",
