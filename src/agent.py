@@ -1,11 +1,10 @@
 from dotenv import load_dotenv
-
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
-import dateparser  
-from chroma.chroma_service import ChromaService 
+import dateparser
+from src.chroma.chroma_service import ChromaService 
 import re
 
 load_dotenv(".env.local")
@@ -148,9 +147,21 @@ class MainAssistant(Agent):
 
 # --- Entrypoint --- #
 async def entrypoint(ctx: agents.JobContext):
-    
-    room_name = ctx.room or "web_room"
-    print(f"Joining room: {room_name}")
+    await ctx.connect()
+    room = ctx.room
+
+    print(f"Waiting for user to join room {room.name}...")
+
+    participant = None
+    if room.remote_participants:
+        participant = next(iter(room.remote_participants.values()))
+    if not participant:
+        print("⚠️ No remote participants joined in time.")
+        return
+
+    user_identity = participant.identity
+    print(f"✅ User {user_identity} {participant.name} joined.")
+    print(f"Participant metadata: {participant.metadata}")
 
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",  # or your STT model
@@ -172,6 +183,17 @@ async def entrypoint(ctx: agents.JobContext):
     await session.generate_reply(
         instructions="Greet the user that you are their healthcare assistant and ask how can you help them today."
     )
+    
+# from livekit.api import AccessToken
+
+# def generate_access_token(identity: str, room_name: str) -> str:
+#     token = AccessToken(
+#         api_key='your_api_key',
+#         api_secret='your_api_secret',
+#         identity=identity,
+#         room=room_name
+#     )
+#     return token.to_jwt()
 
 if __name__ == "__main__":
     # Run to test with web/mobile frontend
