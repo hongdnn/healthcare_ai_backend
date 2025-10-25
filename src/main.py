@@ -88,6 +88,7 @@ async def doctor_calendar(id: str):
         for calendar in calendars:
             user = await app.db.users.find_one({"_id": ObjectId(calendar["user_id"])})
             print(user)
+            
             appointments.append({
                 "user": {
                     "id": str(user["_id"]),
@@ -96,10 +97,11 @@ async def doctor_calendar(id: str):
                     "email": user["email"],
                 },
                 "details": {
+                    "id": str(calendar["_id"]),
                     "issue": calendar["issue"],
                     "start_datetime": str(calendar["start_datetime"]),
                     "end_datetime": str(calendar["end_datetime"]),
-                    "confirmation": calendar["confirmation"]
+                    "confirmation": calendar["confirmation"],
                 },
             })
 
