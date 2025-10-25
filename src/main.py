@@ -47,10 +47,10 @@ async def login(data: LoginModel):
     if user is not None:
         return JSONResponse(
             status_code=200,
-            content={"status": "ok", "message": "Login successful", "id": str(user["_id"])}
+            content={"status": "ok", "id": str(user["_id"])}
         )
 
     return JSONResponse(
         status_code=401,
-        content={"status": "failed", "message": "Login failed"}
+        content={"status": "failed"}
     )
