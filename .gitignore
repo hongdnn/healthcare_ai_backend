@@ -148,3 +148,6 @@ Desktop.ini
 
 # Local Chroma
 chroma_db/
+
+# Remove idea
+./idea
