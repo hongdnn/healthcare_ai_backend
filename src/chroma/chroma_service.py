@@ -52,4 +52,5 @@ if __name__ == "__main__":
     # to reset collection
     # service.client.delete_collection("health_issues")
     service.excel_to_collection("healthcare_data.xlsx")
-    print(service.query(["fever", "tired"]))
+    import json
+    print(json.dumps(service.query(["fever", "tired"])))

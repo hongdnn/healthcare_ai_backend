@@ -197,6 +197,6 @@ async def entrypoint(ctx: agents.JobContext):
 
 if __name__ == "__main__":
     # Run to test with web/mobile frontend
-    agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
+    #agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
     # Run to test with phone call
-    #agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint, agent_name="my-telephony-agent"))
+    agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint, agent_name="my-telephony-agent"))
