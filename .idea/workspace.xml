@@ -7,6 +7,7 @@
     <list default="true" id="6d7e9222-6512-4971-9d6c-964ac00fd2ba" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/chroma/chroma_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/chroma/chroma_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -203,7 +204,7 @@
       <option name="presentableId" value="Default" />
       <updated>1761327656931</updated>
       <workItem from="1761327658219" duration="1630000" />
-      <workItem from="1761330366181" duration="11588000" />
+      <workItem from="1761330366181" duration="12813000" />
     </task>
     <servers />
   </component>

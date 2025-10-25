@@ -16,7 +16,7 @@ app = FastAPI(
 client = AsyncMongoClient(os.environ["MONGODB_CONNECTION_STRING"])
 db = client.healthcare_db
 user_collection = db.users
-calender_collection = db.calenders
+calendar_collection = db.calendars
 
 @app.get("/")
 async def index():
@@ -57,7 +57,7 @@ async def login(data: LoginModel):
         content={"status": "failed"}
     )
 
-class CalenderModel(BaseModel):
+class CalendarModel(BaseModel):
     """
     Container for a single calendar record
     """
@@ -71,6 +71,40 @@ class CalenderModel(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-@app.get("/calender")
-async def calender():
-    return JSONResponse({"status": "ok"})
+@app.get("/calendar/user/{user_id}")
+async def user_calendar(user_id: str):
+    calendars = await calendar_collection.find({"user_id": user_id}).to_list(length=None)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "appointments": [
+                {
+                    "issue": calendar["issue"],
+                    "start_datetime": str(calendar["start_datetime"]),
+                    "end_datetime": str(calendar["end_datetime"]),
+                    "confirmation": calendar["confirmation"]
+                } for calendar in calendars
+            ]
+        } if len (calendars) > 0 else []
+    )
+
+
+@app.get("/calendar/doctor/{doctor_id}")
+async def doctor_calendar(doctor_id: str):
+    calendars = await calendar_collection.find({"doctor_id": doctor_id}).to_list(length=None)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "appointments": [
+                {
+                    "user_id": calendar["user_id"],
+                    "issue": calendar["issue"],
+                    "start_datetime": str(calendar["start_datetime"]),
+                    "end_datetime": str(calendar["end_datetime"]),
+                    "confirmation": calendar["confirmation"]
+                } for calendar in calendars
+            ]
+        } if len (calendars) > 0 else []
+    )
