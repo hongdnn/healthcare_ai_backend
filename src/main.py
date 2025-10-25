@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from pymongo import AsyncMongoClient
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+from bson import ObjectId
 import os
 
 load_dotenv(".env.local")
@@ -81,17 +82,39 @@ async def user_calendar(id: str):
 async def doctor_calendar(id: str):
     calendars = await app.db.calendars.find({"doctor_id": id}).to_list(length=None)
 
-    return JSONResponse(
-        status_code=200,
-        content={
-            "appointments": [
-                {
-                    "user_id": calendar["user_id"],
+    if len(calendars) > 0:
+        # Format data
+        appointments = []
+        for calendar in calendars:
+            user = await app.db.users.find_one({"_id": ObjectId(calendar["user_id"])})
+            print(user)
+            appointments.append({
+                "user": {
+                    "id": str(user["_id"]),
+                    "name": user["name"],
+                    "phone": user["phone"],
+                    "email": user["email"],
+                },
+                "details": {
                     "issue": calendar["issue"],
                     "start_datetime": str(calendar["start_datetime"]),
                     "end_datetime": str(calendar["end_datetime"]),
                     "confirmation": calendar["confirmation"]
-                } for calendar in calendars
-            ]
-        } if len (calendars) > 0 else []
+                },
+            })
+
+        # Return data
+        return JSONResponse(
+            status_code=200,
+            content={
+                "appointments": appointments
+            }
+        )
+
+    # Return empty appointments
+    return JSONResponse(
+        status_code=200,
+        content={
+            "appointments": []
+        }
     )
