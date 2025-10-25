@@ -3,20 +3,31 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from pymongo import AsyncMongoClient
 from dotenv import load_dotenv
-from datetime import datetime
-
+from contextlib import asynccontextmanager
 import os
 
 load_dotenv(".env.local")
 
+@asynccontextmanager
+async def lifespan(api: FastAPI):
+    # Startup: Connect to MongoDB
+    print("🚀 Connecting to MongoDB...")
+    app.mongodb_client = AsyncMongoClient(os.environ["MONGODB_CONNECTION_STRING"])
+    app.db = app.mongodb_client.healthcare_db
+    print("✅ MongoDB connected")
+    
+    yield  # App runs here
+    
+    # Shutdown: Close MongoDB connection
+    print("🔌 Closing MongoDB connection...")
+    app.mongodb_client.close()
+    print("👋 MongoDB disconnected")
+
 # --- Create FastAPI app --- #
 app = FastAPI(
-    title="Healthcare AI API"
+    title="Healthcare AI API",
+    lifespan=lifespan
 )
-client = AsyncMongoClient(os.environ["MONGODB_CONNECTION_STRING"])
-db = client.healthcare_db
-user_collection = db.users
-calendar_collection = db.calendars
 
 @app.get("/")
 async def index():
@@ -25,15 +36,6 @@ async def index():
 @app.get("/health")
 async def health():
     return JSONResponse({"status": "healthy"})
-    
-class UserModel(BaseModel):
-    """
-    Container for a single user record
-    """
-    name: str
-    phone: str
-    email: str
-    type: str
 
 class LoginModel(BaseModel):
     """
@@ -44,12 +46,12 @@ class LoginModel(BaseModel):
 @app.post("/login")
 async def login(data: LoginModel):
     print("user: ", data.email)
-    user = await user_collection.find_one({"email": data.email, "type": "doctor"})
+    user = await app.db.users.find_one({"email": data.email})
 
     if user is not None:
         return JSONResponse(
             status_code=200,
-            content={"status": "ok", "id": str(user["_id"])}
+            content={"status": "ok", "id": str(user["_id"]), "type": user["type"]}
         )
 
     return JSONResponse(
@@ -57,23 +59,9 @@ async def login(data: LoginModel):
         content={"status": "failed"}
     )
 
-class CalendarModel(BaseModel):
-    """
-    Container for a single calendar record
-    """
-    doctor_id: str
-    user_id: str
-    issue: str
-    start_datetime: datetime
-    end_datetime: datetime
-    confirmation: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-@app.get("/calendar/user/{user_id}")
-async def user_calendar(user_id: str):
-    calendars = await calendar_collection.find({"user_id": user_id}).to_list(length=None)
+@app.get("/calendar/user")
+async def user_calendar(id: str):
+    calendars = await app.db.calendars.find({"user_id": id}).to_list(length=None)
 
     return JSONResponse(
         status_code=200,
@@ -89,10 +77,9 @@ async def user_calendar(user_id: str):
         } if len (calendars) > 0 else []
     )
 
-
-@app.get("/calendar/doctor/{doctor_id}")
-async def doctor_calendar(doctor_id: str):
-    calendars = await calendar_collection.find({"doctor_id": doctor_id}).to_list(length=None)
+@app.get("/calendar/doctor")
+async def doctor_calendar(id: str):
+    calendars = await app.db.calendars.find({"doctor_id": id}).to_list(length=None)
 
     return JSONResponse(
         status_code=200,
