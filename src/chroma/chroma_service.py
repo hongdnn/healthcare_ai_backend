@@ -4,7 +4,7 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv(".env.local")
+load_dotenv("../../.env.local")
 
 class ChromaService:
     def __init__(self):
@@ -40,7 +40,7 @@ class ChromaService:
             query_texts=[query_text],
             n_results=n_results,
         )
-        
+
         print(f"Chroma query results: {results}")
 
         output = []
