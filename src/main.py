@@ -13,7 +13,7 @@ load_dotenv(".env.local")
 async def lifespan(api: FastAPI):
     # Startup: Connect to MongoDB
     print("🚀 Connecting to MongoDB...")
-    app.mongodb_client = AsyncMongoClient(os.environ["MONGODB_CONNECTION_STRING"])
+    app.mongodb_client = AsyncMongoClient(os.environ["MONGODB_URL"])
     app.db = app.mongodb_client.healthcare_db
     print("✅ MongoDB connected")
     
