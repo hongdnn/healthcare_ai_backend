@@ -1,9 +1,18 @@
 from typing import Dict, List
 import chromadb
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(".env.local")
 
 class ChromaService:
     def __init__(self):
-        self.client = chromadb.PersistentClient(path="./chroma_db")
+        self.client = chromadb.CloudClient(
+            api_key=os.environ["CHROMA_API_KEY"],
+            tenant=os.environ["CHROMA_TENANT"],
+            database=os.environ["CHROMA_DATABASE"],
+        )
         self.collection = self.client.get_or_create_collection("health_issues")
 
     def excel_to_collection(self, excel_path: str):
@@ -51,6 +60,6 @@ if __name__ == "__main__":
     service = ChromaService()
     # to reset collection
     # service.client.delete_collection("health_issues")
-    service.excel_to_collection("healthcare_data.xlsx")
+    # service.excel_to_collection("healthcare_data.xlsx")
     import json
     print(json.dumps(service.query(["fever", "tired"])))
