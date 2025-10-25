@@ -1,15 +1,19 @@
+import asyncio
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 import dateparser
-from src.chroma.chroma_service import ChromaService 
+from chroma.chroma_service import ChromaService
 import re
+from db.mongo_service import MongoService
+from models.user import User
 
 load_dotenv(".env.local")
 
 chroma_service = ChromaService()
+mongo_service = MongoService()
 
 # --- Helper: simple text → list of symptoms --- #
 def extract_symptoms(text: str) -> list[str]:
@@ -22,76 +26,82 @@ def extract_symptoms(text: str) -> list[str]:
 
 # --- Define tools --- #
 # --- Tool: Symptom check --- #
-@agents.function_tool
-async def symptom_check_api(ctx: agents.RunContext, user_input: str) -> dict:
-    """
-    Uses Chroma to find the most similar known health issue based on symptoms.
-    """
-    symptoms = extract_symptoms(user_input)
+# @agents.function_tool
+# async def symptom_check_api(ctx: agents.RunContext, user_input: str) -> dict:
+#     """
+#     Uses Chroma to find the most similar known health issue based on symptoms.
+#     """
+#     symptoms = extract_symptoms(user_input)
 
-    if not symptoms:
-        return {
-            "issue": "unknown",
-            "recommendation": "Please describe your symptoms again more clearly."
-        }
+#     if not symptoms:
+#         return {
+#             "issue": "unknown",
+#             "recommendation": "Please describe your symptoms again more clearly."
+#         }
 
-    print(f"Extracted symptoms: {symptoms}")
+#     print(f"Extracted symptoms: {symptoms}")
 
-    result = chroma_service.query(symptoms)
-    if not result:
-        return {
-            "issue": "unknown",
-            "recommendation": "No matching cases found. Please consult a healthcare professional."
-        }
+#     result = chroma_service.query(symptoms)
+#     if not result:
+#         return {
+#             "issue": "unknown",
+#             "recommendation": "No matching cases found. Please consult a healthcare professional."
+#         }
 
-    return {
-        "issue": result.get("health_issue", "unknown"),
-        "recommendation": result.get("advice", "Please rest and drink water.")
-    }
+#     return {
+#         "issue": result.get("health_issue", "unknown"),
+#         "recommendation": result.get("advice", "Please consult a healthcare professional.")
+#     }
 
 
 # --- Tool: Symptom check --- #
 @agents.function_tool
-async def symptom_check_api(ctx: agents.RunContext, symptoms: str) -> dict:
+async def symptom_check_api(ctx: agents.RunContext, symptoms: str, n_result: int = 3) -> dict:
     """
     Uses Chroma to find the most similar known health issue based on symptoms.
+    If multiple results are returned, suggest additional symptoms to the user to refine the query.
     """
     try:
-        symptoms = extract_symptoms(symptoms)
-        print(f"Extracted symptoms: {symptoms}")
-
-        results = chroma_service.query(symptoms)
-
+        user_symptoms = extract_symptoms(symptoms)
+        print(f"Extracted symptoms: {user_symptoms}")
+        results = chroma_service.query(user_symptoms, n_results=n_result)
         if not results:
             raise ValueError("No results from Chroma")
 
+        # If only one result, return immediately
+        if len(results) == 1:
+            return {
+                "issue": results[0].get("health_issue", "unknown"),
+                "recommendation": results[0].get("advice", "Please consult a healthcare professional.")
+            }
+
+        # Multiple results: extract unique symptoms not already mentioned
+        additional_symptoms = set()
+        for r in results:
+            symptom_str = r.get("symptoms", "")
+            # split by comma and strip whitespace
+            for s in symptom_str.split(","):
+                s_clean = s.strip().lower()
+                if s_clean and s_clean not in user_symptoms:
+                    additional_symptoms.add(s_clean)
+
+        # Pick up to 3 additional symptoms to suggest
+        suggested_symptoms = list(additional_symptoms)[:3]
+
         return {
-            "issue": results[0].get("health_issue", "unknown"),
-            "recommendation": results[0].get("advice", "Please consult a healthcare professional.")
+            "issue": "I found several possible conditions.",
+            "recommendation": "",
+            "suggested_symptoms": suggested_symptoms  
         }
 
     except Exception as e:
+        print(f"Error in symptom_check_api: {e}")
         return {
             "issue": "unknown",
             "recommendation": "Please consult a healthcare professional."
         }
-
-# Tool: book appointment
-@agents.function_tool
-async def book_appointment(ctx: agents.RunContext, patient_name: str, issue: str, preferred_time: str) -> dict:
-    """
-    Calls your calendar booking service and returns booking confirmation.
-    """
-    print(f"Booking appointment for {patient_name} regarding {issue} at {preferred_time}")
-    # async with httpx.AsyncClient() as client:
-    #     resp = await client.post(
-    #         "https://api.myhealthsystem.com/book",
-    #         json={"patient": patient_name, "issue": issue, "time": preferred_time}
-    #     )
-    #     resp.raise_for_status()
-    #     result = resp.json()
-    return {"confirmation": "Appointment booked successfully for " + preferred_time}
-
+        
+# --- Tool: Parse datetime --- #
 @agents.function_tool
 async def parse_datetime(ctx: agents.RunContext, text: str) -> dict:
     """
@@ -105,12 +115,30 @@ async def parse_datetime(ctx: agents.RunContext, text: str) -> dict:
 
 # --- Define main Assistant agent --- #
 class MainAssistant(Agent):
-    def __init__(self) -> None:
+    def __init__(self, user: User | None) -> None:
+        self.user = user
+        
+        @agents.function_tool
+        async def book_appointment(ctx: agents.RunContext, issue: str, preferred_time: str) -> dict:
+            user_id = str(self.user._id) if self.user else "anonymous"
+            print(f"📅 Booking appointment for {user_id} regarding {issue} at {preferred_time}")
+            result = mongo_service.create_appointment(
+                user_id=user_id,
+                issue=f"Appointment regarding {issue}",
+                datetime_iso=preferred_time,
+                confirmation="confirmed"
+            )
+            if not result:
+                return {"confirmation": "There was a scheduling conflict. Please choose a different time."} 
+            return {"confirmation": f"Appointment booked successfully for {preferred_time}"}
+        
         super().__init__(
             instructions=(
                 "You are a friendly healthcare assistant. "
-                "You will ask the user how they are feeling and what symptoms they have. "
+                "You will ask the user how they are feeling. "
                 "Then call the `symptom_check_api` tool to get the probable health issue and recommendation. "
+                "If the `symptom_check_api` returns `suggested_symptoms`, ask the user about those additional symptoms to refine the diagnosis,"
+                " then call `symptom_check_api` again with the updated symptoms and n_result = 1."
                 "Once you get the result, generate a clear, natural sentence for the user using the fields: "
                 "`issue` (the probable health problem) and `recommendation` (what they should do). "
                 "Always remind the user to see a doctor for confirmation. "
@@ -118,10 +146,12 @@ class MainAssistant(Agent):
                 "If the user doesn't provide a full date and time, ask for missing parts, "
                 "then call the `parse_datetime` tool to get the absolute timestamp. "
                 "Confirm this time with the user in natural language before booking. "
-                "After confirmation, call `book_appointment` with the ISO datetime."
+                "After confirmation, call `book_appointment` with the ISO datetime and the user's id."
+                "If `book_appointment` return conflict schedule, inform the user that there was a scheduling conflict and ask if they're available at a different time."
+                "Then, try booking again."
 
                 "Example:"
-                "Assistant: How are you feeling today? What symptoms do you have?"
+                "Assistant: How are you feeling today?"
                 "User: I have fever and cough."
                 "Assistant: (call `symptom_check_api` with 'fever, cough')"
                 "Tool returns: {'issue': 'Covid', 'recommendation': 'isolate, drink water}"
@@ -134,7 +164,7 @@ class MainAssistant(Agent):
                 "Assistant: (combine 'tomorrow' + '4:30 PM', call `parse_datetime` → get ISO datetime)"
                 "Assistant: 'Okay, so your appointment will be on October 24th at 4:30 PM, right?'"
                 "User: Yes"
-                "Assistant: (call `book_appointment` with the ISO datetime)"
+                "Assistant: (call `book_appointment` with the ISO datetime and user's id)"
                 "Assistant: 'Your appointment has been booked successfully.'"
             ),
             tools=[symptom_check_api, book_appointment, parse_datetime]
@@ -153,15 +183,29 @@ async def entrypoint(ctx: agents.JobContext):
     print(f"Waiting for user to join room {room.name}...")
 
     participant = None
-    if room.remote_participants:
-        participant = next(iter(room.remote_participants.values()))
+    for _ in range(15):
+        if room.remote_participants:
+            participant = next(iter(room.remote_participants.values()))
+            break
+        await asyncio.sleep(1)
+
     if not participant:
         print("⚠️ No remote participants joined in time.")
         return
 
     user_identity = participant.identity
     print(f"✅ User {user_identity} {participant.name} joined.")
-    print(f"Participant metadata: {participant.metadata}")
+    identity = participant.identity
+    user = None
+
+    if identity.startswith("sip_"):
+        # Extract phone number after 'sip_'
+        phone_number = identity.split("sip_")[1]
+        user = mongo_service.fetch_user_by_phone(phone_number)
+    else:
+        user = mongo_service.fetch_user_by_id(identity)
+
+    print(f"Fetched user from DB: {user.name} ({user.email})")
 
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",  # or your STT model
@@ -173,7 +217,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     await session.start(
         room=ctx.room,
-        agent=MainAssistant(),
+        agent=MainAssistant(user=user),
         room_input_options=RoomInputOptions(
             noise_cancellation=noise_cancellation.BVC()
         )
@@ -184,19 +228,6 @@ async def entrypoint(ctx: agents.JobContext):
         instructions="Greet the user that you are their healthcare assistant and ask how can you help them today."
     )
     
-# from livekit.api import AccessToken
-
-# def generate_access_token(identity: str, room_name: str) -> str:
-#     token = AccessToken(
-#         api_key='your_api_key',
-#         api_secret='your_api_secret',
-#         identity=identity,
-#         room=room_name
-#     )
-#     return token.to_jwt()
 
 if __name__ == "__main__":
-    # Run to test with web/mobile frontend
-    #agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
-    # Run to test with phone call
     agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint, agent_name="my-telephony-agent"))
