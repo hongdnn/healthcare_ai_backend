@@ -173,3 +173,39 @@ async def email(data: EmailModel):
                 "status": "failed"
             }
         )
+    
+@app.get("/conversations")
+async def conversations(appointment_id: str):
+    conversation = await app.db.conversations.find_one({"appointment_id": appointment_id})
+
+    if conversation is not None:
+        calendar = await app.db.calendars.find_one({"_id": ObjectId(appointment_id)})
+        return JSONResponse(
+            status_code=200,
+            content={
+                "conversation": {
+                    "detail": {
+                        "appointment": {
+                            "doctor_id": calendar["doctor_id"],
+                            "issue": calendar["issue"],
+                            "start_datetime": str(calendar["start_datetime"]),
+                            "end_datetime": str(calendar["end_datetime"]),
+                            "confirmation": calendar["confirmation"],
+                            "created_at": str(calendar["created_at"])
+                        },
+                        "ai_summary": {
+                            "issue": conversation["issue"],
+                            "symptoms": conversation["symptoms"],
+                            "recommendations": conversation["recommendations"]
+                        }
+                    }
+                }
+            }
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "conversations": None
+        }
+    )
