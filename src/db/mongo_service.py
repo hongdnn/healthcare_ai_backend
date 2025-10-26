@@ -123,3 +123,7 @@ class MongoService:
         result = self.conversations.insert_one(conversation)
         print(f"💾 Conversation saved (ID: {result.inserted_id})")
         return str(result.inserted_id)
+    
+    def fetch_appointment_by_id(self, appointment_id: str):
+        """Fetch appointment by its ID."""
+        return self.calendar.find_one({"_id": ObjectId(appointment_id)})

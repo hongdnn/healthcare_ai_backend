@@ -106,5 +106,5 @@ if __name__ == "__main__":
     service = ChromaService()
     # to reset collection
     # service.client.delete_collection("health_issues")
-    service.excel_to_collection("healthcare_data.xlsx")
+    # service.excel_to_collection("healthcare_data.xlsx")
     print(service.query(["headache", "cough"], n_results=3))
