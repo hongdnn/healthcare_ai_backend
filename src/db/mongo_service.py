@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
 from bson import ObjectId
+import pytz
 
 from models.user import User
 
@@ -64,16 +65,22 @@ class MongoService:
             return None
 
     def create_appointment(self, user_id: str, issue: str, datetime_iso: str, confirmation: str):
-        """Insert appointment record into MongoDB with 1-hour overlap protection."""
-        start_time = datetime.fromisoformat(datetime_iso)
+        """Insert appointment record into MongoDB with 1-hour overlap protection and timezone-aware datetime."""
+        # Set your local timezone
+        local_tz = pytz.timezone("US/Pacific")
+
+        # Parse ISO string and localize to Pacific time
+        naive_dt = datetime.fromisoformat(datetime_iso)
+        start_time = local_tz.localize(naive_dt)
         end_time = start_time + timedelta(hours=1)
+
         doctor_id = "68fc65ca4916df00cfe6ec9d"
 
-        # Define the protected window: ±55 minutes
+        # Define protected window: ±55 minutes
         window_start = start_time - timedelta(minutes=55)
         window_end = start_time + timedelta(minutes=55)
 
-        # Check for overlapping appointments with the same doctor
+        # MongoDB stores in UTC automatically
         conflict = self.calendar.find_one({
             "doctor_id": doctor_id,
             "start_datetime": {"$lte": window_end},
@@ -82,9 +89,8 @@ class MongoService:
 
         if conflict:
             print(f"⚠️ Conflict detected: doctor already has an appointment at {conflict['start_datetime']}")
-            return None 
+            return None
 
-        # No conflict → create appointment
         appointment = {
             "user_id": user_id,
             "doctor_id": doctor_id,
@@ -92,7 +98,7 @@ class MongoService:
             "start_datetime": start_time,
             "end_datetime": end_time,
             "confirmation": confirmation,
-            "created_at": datetime.now(),
+            "created_at": datetime.now(pytz.utc),
         }
 
         result = self.calendar.insert_one(appointment)
