@@ -174,6 +174,50 @@ async def email(data: EmailModel):
             }
         )
     
+@app.get("/conversations/user")
+async def conversation_user(id: str):
+    conversations = await app.db.conversations.find({"user_id": id}).to_list(length=None)
+
+    if conversations is not None:
+        data = []
+        for conversation in conversations:
+            calendar = await app.db.calendars.find_one({"_id": ObjectId(conversation["appointment_id"])})
+            data.append({
+                "conversation": {
+                    "detail": {
+                        "appointment": {
+                            "doctor_id": calendar["doctor_id"],
+                            "issue": calendar["issue"],
+                            "start_datetime": str(calendar["start_datetime"]),
+                            "end_datetime": str(calendar["end_datetime"]),
+                            "confirmation": calendar["confirmation"],
+                            "created_at": str(calendar["created_at"])
+                        },
+                        "ai_summary": {
+                            "issue": conversation["issue"],
+                            "symptoms": conversation["symptoms"],
+                            "recommendations": conversation["recommendations"]
+                        }
+                    }
+                }
+            })
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "conversations": data
+            }
+        )
+
+
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "conversations": None
+        }
+    )
+
 @app.get("/conversations")
 async def conversations(appointment_id: str):
     conversation = await app.db.conversations.find_one({"appointment_id": appointment_id})
