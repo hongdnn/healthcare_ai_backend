@@ -4,12 +4,13 @@ from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
-from livekit.rtc import Room, ConnectionState
+from livekit.rtc import ConnectionState
 import dateparser
 from chroma.chroma_service import ChromaService
 import re
 from db.mongo_service import MongoService
 from models.user import User
+from utils.time_utils import format_datetime_natural
 
 load_dotenv(".env.local")
 
@@ -23,9 +24,6 @@ def extract_symptoms(text: str) -> list[str]:
     """
     tokens = re.split(r"[,\s]*(?:and|but|with|also|plus|,|\s)+[,\s]*", text, flags=re.IGNORECASE)
     return [t.strip().lower() for t in tokens if t.strip()]
-
-
-# --- Tool: Symptom check --- #
 
         
 # --- Tool: Parse datetime --- #
@@ -101,6 +99,14 @@ class MainAssistant(Agent):
         @agents.function_tool
         async def book_appointment(ctx: agents.RunContext, issue: str, preferred_time: str) -> dict:
             user_id = str(self.user._id) if self.user else "anonymous"
+            rebooking = False
+
+            # --- Handle rebooking ---
+            if self.appointment_id:
+                print(f"🔄 Deleting previous appointment {self.appointment_id} for rebooking...")
+                mongo_service.delete_appointment(self.appointment_id)
+                rebooking = True
+
             print(f"📅 Booking appointment for {user_id} regarding {issue} at {preferred_time}")
             result = mongo_service.create_appointment(
                 user_id=user_id,
@@ -108,9 +114,49 @@ class MainAssistant(Agent):
                 datetime_iso=preferred_time,
                 confirmation="confirmed"
             )
+
             if not result:
-                return {"confirmation": "There was a scheduling conflict. Please choose a different time."} 
+                return {"confirmation": "There was a scheduling conflict. Please choose a different time."}
+
             self.appointment_id = result
+
+            # --- Send confirmation email asynchronously ---
+            if self.user and self.user.email:
+                print(f"Preparing to send {'update' if rebooking else 'confirmation'} email to {self.user.email}...")
+                formatted_time = format_datetime_natural(preferred_time)
+
+                async def send_email():
+                    subject = (
+                        f"Cura Appointment Update Confirmation at {formatted_time}"
+                        if rebooking
+                        else f"Cura Appointment Confirmation at {formatted_time}"
+                    )
+                    content = (
+                        f"Hello {self.user.name},\n\n"
+                        f"Your appointment with Cura regarding '{issue}' has been successfully "
+                        f"{'updated' if rebooking else 'booked'}.\n"
+                        f"📅 Date & Time: {formatted_time}\n"
+                        f"📍 Location: 1234 Wellness Street, San Francisco\n\n"
+                        "Thank you for choosing Cura. We look forward to seeing you soon!\n\n"
+                        "- Cura Healthcare Team"
+                    )
+
+                    email_payload = {"email": self.user.email, "subject": subject, "content": content}
+
+                    try:
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            await session.post(
+                                "https://healthcare-ai-backend-s5rf.onrender.com/email",
+                                json=email_payload,
+                                timeout=aiohttp.ClientTimeout(total=10)
+                            )
+                        print(f"📧 Email {'update' if rebooking else 'confirmation'} sent to {self.user.email}")
+                    except Exception as e:
+                        print(f"⚠️ Failed to send {'update' if rebooking else 'confirmation'} email: {e}")
+
+                # Run without blocking the agent
+                asyncio.create_task(send_email())
             return {"confirmation": f"Appointment booked successfully for {preferred_time}"}
         
         super().__init__(
@@ -124,7 +170,7 @@ class MainAssistant(Agent):
                 "`issue` (the probable health problem) and `recommendation` (what they should do). "
                 "Always remind the user to see a doctor for confirmation. "
                 "If needed, offer to book an in-person appointment by calling `book_appointment`. "
-                "If the user doesn't provide a full date and time, ask for missing parts, "
+                "If the user doesn't provide a full date and time, ask for missing parts, don't mention morning/afternoon/evening, "
                 "then call the `parse_datetime` tool to get the absolute timestamp. "
                 "Confirm this time with the user in natural language before booking. "
                 "After confirmation, call `book_appointment` with the ISO datetime and the user's id."
